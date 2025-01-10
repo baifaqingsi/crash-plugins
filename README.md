@@ -12,7 +12,7 @@ We have developed the plugins that can gather more information based on crash-ut
 sudo apt-get install cmake  // cmake >= 3.21.1
 ```
 ```
-$ sudo apt-get install gcc-multilib g++-multilib
+sudo apt-get install gcc-multilib g++-multilib
 ```
 
 # How to build
@@ -174,7 +174,7 @@ void Demo::cmd_main(void) {
 		cmd_usage(pc->curcmd, SYNOPSIS);
 }
 
-Demo::Demo():PaserPlugin(){
+Demo::Demo(){
     cmd_name = "demo";
     help_str_list={
 	"demo",					/* command name */
@@ -223,4 +223,4 @@ set_target_properties(demo PROPERTIES PREFIX "")
 - https://github.com/quic/crash-plugins.git
 
 # Author
- - quic_wya@quicinc.com
+- quic_wya@quicinc.com

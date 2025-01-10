@@ -23,11 +23,11 @@ jobs:
       run: echo "tag=$(git tag)" >> $GITHUB_ENV
     
     - name: Install Dependencies and Build
-    run: |
-      sudo apt-get install -y gcc-multilib g++-multilib
-      bash build.sh
-      tar -czvf crash-plugins_${{ env.tag }}.tar.gz output/arm64/plugins.so \
-      output/arm/plugins.so
+      run: |
+        sudo apt-get install -y gcc-multilib g++-multilib
+        bash build.sh
+        tar -czvf crash-plugins_${{ env.tag }}.tar.gz output/arm64/plugins.so \
+        output/arm/plugins.so
 
     - name: Upload a Build Artifact
       uses: actions/upload-artifact@v4
