@@ -17,23 +17,23 @@ jobs:
 
     steps:
     - name: checkout branch
-    uses: actions/checkout@v4
+      uses: actions/checkout@v4
 
     - name: get_tag
-    run: echo "tag=$(git tag)" >> $GITHUB_ENV
+      run: echo "tag=$(git tag)" >> $GITHUB_ENV
     
     - name: Install Dependencies and Build
     run: |
-    sudo apt-get install -y gcc-multilib g++-multilib
-    bash build.sh
-    tar -czvf crash-plugins_${{ env.tag }}.tar.gz output/arm64/plugins.so \
-    output/arm/plugins.so
+      sudo apt-get install -y gcc-multilib g++-multilib
+      bash build.sh
+      tar -czvf crash-plugins_${{ env.tag }}.tar.gz output/arm64/plugins.so \
+      output/arm/plugins.so
 
     - name: Upload a Build Artifact
-    uses: actions/upload-artifact@v4
-    with:
-        name: crash-plugins_${{ env.tag }}.tar.gz
-        path: crash-plugins_${{ env.tag }}.tar.gz
+      uses: actions/upload-artifact@v4
+      with:
+          name: crash-plugins_${{ env.tag }}.tar.gz
+          path: crash-plugins_${{ env.tag }}.tar.gz
 
   release:
     needs: build
