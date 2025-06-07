@@ -323,7 +323,8 @@ char* Zraminfo::read_zram_page(ulong zram_addr, ulonglong index){
         if (comp_len == page_size) {
             memcpy(page_data, data_ptr, page_size);
         } else {
-            decompress(zram_ptr->compressor,data_ptr,page_data,comp_len, page_size);
+            std::string compress_name = (zram_ptr->compressor.empty() ? zram_ptr->zcomp_name : zram_ptr->compressor);
+            decompress(compress_name, data_ptr, page_data, comp_len, page_size);
         }
         std::free(obj_data);
         return page_data;
@@ -352,14 +353,8 @@ int Zraminfo::decompress(std::string comp_name,char* source, char* dest,
 
 int Zraminfo::lzo1x_decompress(char *source, char *dest,
                                  int compressedSize, int maxDecompressedSize) {
-    int err;
     size_t tmp_len = maxDecompressedSize;
-    err = lzo1x_decompress_safe((unsigned char*)source, compressedSize, (unsigned char*)dest, &tmp_len);
-    if (err != 0) {
-        tmp_len = 0;
-        fprintf(fp, "lzo1x_decompress_safe error(%d)\n", err);
-    }
-    return tmp_len;
+    return lzo1x_decompress_safe((unsigned char*)source, compressedSize, (unsigned char*)dest, &tmp_len);
 }
 
 int Zraminfo::lz4_decompress(char *source, char *dest,
