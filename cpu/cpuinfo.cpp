@@ -29,13 +29,16 @@ void CpuInfo::cmd_main(void) {
     if (cpu_infos.size() == 0){
         parser_cpu_policy();
     }
-    while ((c = getopt(argcnt, args, "pf")) != EOF) {
+    while ((c = getopt(argcnt, args, "pfs")) != EOF) {
         switch(c) {
             case 'p':
                 print_cpu_policy();
                 break;
             case 'f':
                 print_freq_table();
+                break;
+            case 's':
+                print_cpu_state();
                 break;
             default:
                 argerrs++;
@@ -65,6 +68,7 @@ CpuInfo::CpuInfo(){
         "dump cpu information",        /* short description */
         "-p \n"
             "  cpu -f\n"
+            "  cpu -s\n"
             "  This command dumps the cpu info.",
         "\n",
         "EXAMPLES",
@@ -83,6 +87,18 @@ CpuInfo::CpuInfo(){
         "    864000          864000          864000          864000",
         "    1363200         1363200         1363200         1363200",
         "    1708800         1708800         1708800         1708800",
+        "\n",
+        "  Display cpu state:",
+        "    %s> cpu -s",
+        "    cluster_data:0xffffffe595428460 Enable:true num_cpus:4 first_cpu:0 active_cpus:2",
+        "       cpu_data:0xffffff887a139de0 cpu:0 disabled:false is_busy:false busy_pct:32",
+        "       cpu_data:0xffffff887a35cde0 cpu:1 disabled:false is_busy:false busy_pct:50",
+        "       cpu_data:0xffffff887a57fde0 cpu:2 disabled:false is_busy:false busy_pct:1",
+        "       cpu_data:0xffffff887a7a2de0 cpu:3 disabled:false is_busy:false busy_pct:0",
+        "",
+        "",
+        "    cluster_data:0xffffffe595428590 Enable:true num_cpus:1 first_cpu:4 active_cpus:1",
+        "       cpu_data:0xffffff887a9c5de0 cpu:4 disabled:false is_busy:false busy_pct:0",
         "\n",
     };
     initialize();
@@ -160,6 +176,50 @@ void CpuInfo::parser_cpu_policy(){
             index++;
         }
         cpu_infos.push_back(cpu_ptr);
+    }
+}
+
+
+void CpuInfo::print_cpu_state(){
+    if (!csymbol_exists("cluster_state")){
+        fprintf(fp, "cluster_state doesn't exist in this kernel!\n");
+        return;
+    }
+    field_init(cluster_data,lru);
+    field_init(cluster_data,enable);
+    field_init(cluster_data,num_cpus);
+    field_init(cluster_data,first_cpu);
+    field_init(cluster_data,active_cpus);
+    struct_init(cluster_data);
+    ulong state_addr = csymbol_value("cluster_state");
+    size_t num_clusters = read_uint(csymbol_value("num_clusters"),"num_clusters");
+    for (size_t i = 0; i < num_clusters; i++){
+        ulong cluster_addr = state_addr + i * struct_size(cluster_data);
+        void *buf = read_struct(cluster_addr,"cluster_data");
+        if (!buf) continue;
+        fprintf(fp, "cluster_data:%#lx Enable:%s num_cpus:%d first_cpu:%d active_cpus:%d \n",cluster_addr,
+            UINT(buf + field_offset(cluster_data,enable)) ? "true":"false",
+            UINT(buf + field_offset(cluster_data,num_cpus)),
+            UINT(buf + field_offset(cluster_data,first_cpu)),
+            UINT(buf + field_offset(cluster_data,active_cpus))
+        );
+        ulong list_head = cluster_addr + field_offset(cluster_data,lru);
+        int offset = offsetof(struct cpu_data, sib);
+        for (const auto& data_addr : for_each_list(list_head, offset)) {
+            if (!is_kvaddr(data_addr)) continue;
+            struct cpu_data data;
+            if(!read_struct(data_addr,&data,sizeof(data),"cpu_data")){
+                continue;
+            }
+            fprintf(fp, "   cpu_data:%#lx cpu:%d disabled:%s is_busy:%s busy_pct:%d \n",data_addr,
+                data.cpu,
+                data.disabled ? "true":"false",
+                data.is_busy ? "true":"false",
+                data.busy_pct
+            );
+        }
+        FREEBUF(buf);
+        fprintf(fp, "\n\n");
     }
 }
 

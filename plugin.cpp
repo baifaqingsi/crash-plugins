@@ -23,32 +23,39 @@ ParserPlugin::ParserPlugin(){
     field_init(task_struct, mm);
     field_init(task_struct, tasks);
     struct_init(task_struct);
-
+    field_init(task_struct,files);
+    field_init(files_struct,fdt);
+    field_init(fdtable,max_fds);
+    field_init(fdtable,fd);
     field_init(mm_struct, pgd);
     field_init(mm_struct, arg_start);
     field_init(mm_struct, arg_end);
-    if (THIS_KERNEL_VERSION < LINUX(6,1,0)){
-        field_init(mm_struct, mmap);
-    }else{
-        field_init(mm_struct, mm_mt);
-    }
+    field_init(mm_struct, mmap);
+    field_init(mm_struct, mm_mt);
     struct_init(mm_struct);
-
     field_init(maple_tree,ma_root);
-
     field_init(vm_area_struct,vm_start);
     field_init(vm_area_struct,vm_end);
     field_init(vm_area_struct,vm_flags);
     field_init(vm_area_struct, vm_next);
     struct_init(vm_area_struct);
-
     field_init(page, _mapcount);
     field_init(page, freelist);
     field_init(page, units);
     field_init(page, index);
     field_init(page, private);
+    field_init(page, page_type);
+    field_init(page, _count);
+    field_init(page, _refcount);
+    field_init(page, mapping);
     struct_init(page);
-
+    field_init(address_space,host);
+    field_init(address_space,a_ops);
+    field_init(address_space,nrpages);
+    field_init(address_space,i_pages);
+    field_init(address_space,page_tree);
+    struct_init(address_space);
+    field_init(inode,i_mapping);
     field_init(list_head, prev);
     field_init(list_head, next);
     struct_init(list_head);
@@ -74,12 +81,16 @@ ParserPlugin::ParserPlugin(){
     field_init(kset,kobj);
     field_init(kset,list);
     field_init(kobject, entry);
+    field_init(char_device_struct,next);
+    field_init(char_device_struct,cdev);
+    field_init(char_device_struct,name);
+    field_init(miscdevice,list);
     if (BITS64()){
         std::string config = get_config_val("CONFIG_ARM64_VA_BITS");
         int va_bits = std::stoi(config);
-        vaddr_mask = GENMASK_ULL((va_bits ? va_bits : 39) - 1, 0);
+        kaddr_mask = GENMASK_ULL((va_bits ? va_bits : 39) - 1, 0);
     }else{
-        vaddr_mask = GENMASK_ULL(32 - 1, 0);
+        kaddr_mask = GENMASK_ULL(32 - 1, 0);
     }
     //print_table();
 }
@@ -145,6 +156,53 @@ std::string ParserPlugin::csize(uint64_t size, int unit, int precision){
         oss << size << "B";
     }
     return oss.str();
+}
+
+struct task_context* ParserPlugin::find_proc(ulong pid){
+    for(ulong task_addr: for_each_process()){
+        struct task_context *tc = task_to_context(task_addr);
+        if (!tc){
+            continue;
+        }
+        if (tc->pid == pid){
+            return tc;
+        }
+    }
+    return nullptr;
+}
+
+struct task_context* ParserPlugin::find_proc(std::string name){
+    for(ulong task_addr: for_each_process()){
+        struct task_context *tc = task_to_context(task_addr);
+        if (!tc){
+            continue;
+        }
+        std::string comm = tc->comm;
+        if (comm == name){
+            return tc;
+        }
+    }
+    return nullptr;
+}
+
+bool ParserPlugin::page_buddy(ulong page_addr){
+    if (THIS_KERNEL_VERSION >= LINUX(4, 19, 0)){
+        uint page_type = read_uint(page_addr + field_offset(page,page_type),"page_type");
+        return ((page_type & 0xf0000080) == 0xf0000000);
+    }else{
+        uint mapcount = read_int(page_addr + field_offset(page,_mapcount),"_mapcount");
+        return (mapcount == 0xffffff80);
+    }
+}
+
+int ParserPlugin::page_count(ulong page_addr){
+    int count = 0;
+    if (THIS_KERNEL_VERSION < LINUX(4, 6, 0)){
+        count = read_int(page_addr + field_offset(page,_count),"_count");
+    }else{
+        count = read_int(page_addr + field_offset(page,_refcount),"_refcount");
+    }
+    return count;
 }
 
 void ParserPlugin::initialize(void){
@@ -220,6 +278,90 @@ void ParserPlugin::print_table(){
         fprintf(fp, "%s",mkstring(buf, 15, LJUST, buf));
         fprintf(fp, " size:%d\n",pair.second.get()->m_size);
     }
+}
+
+std::vector<ulong> ParserPlugin::for_each_pfn(){
+    ulong max_pfn;
+    ulong min_low_pfn;
+    std::vector<ulong> res;
+    /* max_pfn */
+    if (csymbol_exists("max_pfn")){
+        try_get_symbol_data(TO_CONST_STRING("max_pfn"), sizeof(ulong), &max_pfn);
+    }
+    /* min_low_pfn */
+    if (csymbol_exists("min_low_pfn")){
+        try_get_symbol_data(TO_CONST_STRING("min_low_pfn"), sizeof(ulong), &min_low_pfn);
+    }
+    for (size_t pfn = min_low_pfn; pfn < max_pfn; pfn++){
+        res.push_back(pfn);
+    }
+    return res;
+}
+
+std::vector<ulong> ParserPlugin::for_each_inode(){
+    std::set<ulong> inode_list;
+    for (const auto& page : for_each_file_page()) {
+        ulong mapping = read_pointer(page + field_offset(page,mapping),"mapping");
+        ulong inode = read_pointer(mapping + field_offset(address_space,host),"host");
+        if (!is_kvaddr(inode)){
+            continue;
+        }
+        ulong ops = read_pointer(mapping + field_offset(address_space,a_ops),"a_ops");
+        if (!is_kvaddr(ops)){
+            continue;
+        }
+        ulong i_mapping = read_pointer(inode + field_offset(inode,i_mapping),"i_mapping");
+        if (!is_kvaddr(i_mapping) && mapping != i_mapping){
+            continue;
+        }
+        inode_list.insert(inode);
+    }
+    std::vector<ulong> res(inode_list.begin(), inode_list.end());
+    return res;
+}
+
+std::vector<ulong> ParserPlugin::for_each_file_page(){
+    std::vector<ulong> res;
+    for (const auto& pfn : for_each_pfn()) {
+        ulong page = pfn_to_page(pfn);
+        if (!is_kvaddr(page)){
+            continue;
+        }
+        if(page_buddy(page) || page_count(page) == 0){
+            continue;
+        }
+        ulong mapping = read_pointer(page + field_offset(page,mapping),"mapping");
+        if (!is_kvaddr(mapping)){
+            continue;
+        }
+        if((mapping & 0x1) == 1){ // skip anon page
+            continue;
+        }
+        res.push_back(page);
+    }
+    return res;
+}
+
+std::vector<ulong> ParserPlugin::for_each_anon_page(){
+    std::vector<ulong> res;
+    for (const auto& pfn : for_each_pfn()) {
+        ulong page = pfn_to_page(pfn);
+        if (!is_kvaddr(page)){
+            continue;
+        }
+        if(page_buddy(page) || page_count(page) == 0){
+            continue;
+        }
+        ulong mapping = read_pointer(page + field_offset(page,mapping),"mapping");
+        if (!is_kvaddr(mapping)){
+            continue;
+        }
+        if((mapping & 0x1) == 0){ // skip file page
+            continue;
+        }
+        res.push_back(page);
+    }
+    return res;
 }
 
 std::vector<ulong> ParserPlugin::for_each_radix(ulong root_rnode){
@@ -390,6 +532,155 @@ std::vector<ulong> ParserPlugin::for_each_vma(ulong& task_addr){
         vma_list = for_each_mptree(mm_mt_addr);
     }
     return vma_list;
+}
+
+std::vector<ulong> ParserPlugin::for_each_char_device(){
+    std::vector<ulong> chardev_list;
+    if (!csymbol_exists("chrdevs")){
+        return chardev_list;
+    }
+    size_t len = get_array_length(TO_CONST_STRING("chrdevs"), NULL, 0);
+    ulong devs_addr = csymbol_value("chrdevs");
+    for (size_t i = 0; i < len; i++){
+        ulong chardev_addr = read_pointer(devs_addr + (i * sizeof(void *)),"chardev_addr");
+        if (!is_kvaddr(chardev_addr)){
+            continue;
+        }
+        ulong next_dev_addr = chardev_addr;
+        while (is_kvaddr(next_dev_addr)){
+            chardev_list.push_back(next_dev_addr);
+            next_dev_addr = read_pointer(next_dev_addr + field_offset(char_device_struct,next),"next");
+        }
+    }
+    return chardev_list;
+}
+
+std::vector<ulong> ParserPlugin::for_each_kobj_map(std::string map_name){
+    std::vector<ulong> dev_list;
+    if (!csymbol_exists(map_name)){
+        return dev_list;
+    }
+    field_init(kobj_map, probes);
+    field_init(probe, data);
+    field_init(probe, next);
+    size_t len = field_size(kobj_map,probes)/sizeof(void *);
+    ulong map_addr = read_pointer(csymbol_value(map_name),"map addr");
+    if (!is_kvaddr(map_addr)){
+        return dev_list;
+    }
+    for (size_t i = 0; i < len; i++){
+        ulong probe_addr = read_pointer(map_addr + (i * sizeof(void *)),"probe_addr");
+        if (!is_kvaddr(probe_addr)){
+            continue;
+        }
+        ulong next_addr = probe_addr;
+        while (is_kvaddr(next_addr)){
+            ulong data = read_pointer(next_addr + field_offset(probe,data),"data");
+            if (is_kvaddr(data)){
+                dev_list.push_back(data);
+            }
+            next_addr = read_pointer(next_addr + field_offset(probe,next),"next");
+        }
+    }
+    return dev_list;
+}
+
+std::vector<ulong> ParserPlugin::for_each_cdev(){
+    return for_each_kobj_map("cdev_map");
+}
+
+std::vector<ulong> ParserPlugin::get_disk_by_bdevmap(){
+    return for_each_kobj_map("bdev_map");
+}
+
+std::vector<ulong> ParserPlugin::get_disk_by_block_device(){
+    std::vector<ulong> dev_list;
+    field_init(block_device, bd_disk);
+    if (field_offset(block_device, bd_disk) == -1){
+        return dev_list;
+    }
+    for (auto& addr : for_each_block_device()) {
+        ulong bd_disk = read_pointer(addr + field_offset(block_device,bd_disk),"bd_disk");
+        if (!is_kvaddr(bd_disk)) continue;
+        dev_list.push_back(bd_disk);
+    }
+    return dev_list;
+}
+
+std::vector<ulong> ParserPlugin::for_each_disk(){
+    std::vector<ulong> dev_list = get_disk_by_bdevmap();
+    if (dev_list.size() == 0){
+        dev_list = get_disk_by_block_device();
+    }
+    return dev_list;
+}
+
+std::vector<ulong> ParserPlugin::get_block_device_by_bdevs(){
+    std::vector<ulong> dev_list;
+    if (!csymbol_exists("all_bdevs")){
+        return dev_list;
+    }
+    field_init(block_device, bd_list);
+    for (const auto& addr : for_each_list(csymbol_value("all_bdevs"), field_offset(block_device, bd_list))) {
+        if (!is_kvaddr(addr)) continue;
+        dev_list.push_back(addr);
+    }
+    return dev_list;
+}
+
+std::vector<ulong> ParserPlugin::get_block_device_by_class(){
+    std::vector<ulong> dev_list;
+    field_init(block_device, bd_device);
+    if (field_offset(block_device, bd_device) == -1){
+        return dev_list;
+    }
+    for (const auto& addr : for_each_device_for_class("block")) {
+        ulong bd_addr = addr - field_offset(block_device, bd_device);
+        if (!is_kvaddr(bd_addr)) continue;
+        dev_list.push_back(bd_addr);
+    }
+    return dev_list;
+}
+
+std::vector<ulong> ParserPlugin::get_block_device_by_bdevfs(){
+    std::vector<ulong> dev_list;
+    if (!csymbol_exists("blockdev_superblock")){
+        return dev_list;
+    }
+    field_init(super_block, s_inodes);
+    field_init(inode, i_sb_list);
+    field_init(bdev_inode, vfs_inode);
+    field_init(bdev_inode, bdev);
+    ulong sb_addr = read_pointer(csymbol_value("blockdev_superblock"),"blockdev_superblock");
+    ulong list_head = sb_addr + field_offset(super_block, s_inodes);
+    for (const auto& addr : for_each_list(list_head, field_offset(inode, i_sb_list))) {
+        ulong bd_addr = addr - field_offset(bdev_inode, vfs_inode) + field_offset(bdev_inode, bdev);
+        if (!is_kvaddr(bd_addr)) continue;
+        dev_list.push_back(bd_addr);
+    }
+    return dev_list;
+}
+
+std::vector<ulong> ParserPlugin::for_each_block_device(){
+    std::vector<ulong> dev_list = get_block_device_by_bdevs();
+    if (dev_list.size() == 0){
+        dev_list = get_block_device_by_class();
+    }else if (dev_list.size() == 0){
+        dev_list = get_block_device_by_bdevfs();
+    }
+    return dev_list;
+}
+
+std::vector<ulong> ParserPlugin::for_each_misc_device(){
+    std::vector<ulong> dev_list;
+    if (!csymbol_exists("misc_list")){
+        return dev_list;
+    }
+    for (const auto& addr : for_each_list(csymbol_value("misc_list"), field_offset(miscdevice, list))) {
+        if (!is_kvaddr(addr)) continue;
+        dev_list.push_back(addr);
+    }
+    return dev_list;
 }
 
 std::vector<ulong> ParserPlugin::for_each_class(){
@@ -575,6 +866,36 @@ std::vector<ulong> ParserPlugin::for_each_driver(std::string bus_name){
         driver_list.push_back(driver_addr);
     }
     return driver_list;
+}
+
+std::vector<ulong> ParserPlugin::for_each_task_files(struct task_context *tc){
+    std::vector<ulong> file_table;
+    if (!tc){
+        return file_table;
+    }
+    ulong files = read_pointer(tc->task + field_offset(task_struct,files),"files");
+    if (!is_kvaddr(files)){
+        return file_table;
+    }
+    ulong fdt = read_pointer(files + field_offset(files_struct,fdt),"fdt");
+    if (!is_kvaddr(fdt)){
+        return file_table;
+    }
+    uint max_fds = read_uint(fdt + field_offset(fdtable,max_fds),"max_fds");
+    ulong fds = read_pointer(fdt + field_offset(fdtable,fd),"fds");
+    if (!is_kvaddr(fds)){
+        return file_table;
+    }
+    file_table.resize(max_fds);
+    for (size_t i = 0; i < max_fds; i++){
+        ulong file_addr = read_pointer(fds + i * sizeof(struct file *),"fd");
+        if (!is_kvaddr(file_addr)){
+            file_table[i] = 0;
+            continue;
+        }
+        file_table[i] = file_addr;
+    }
+    return file_table;
 }
 
 ulonglong ParserPlugin::read_structure_field(ulong addr,const std::string& type,const std::string& field,bool virt){
@@ -1035,6 +1356,16 @@ std::string ParserPlugin::hexdump(uint64_t addr, const char* buf, size_t length,
     return sio.str();
 }
 
+std::stringstream ParserPlugin::get_curpath() {
+    std::stringstream ss;
+    char tmp_buf[PATH_MAX];
+    if (getcwd(tmp_buf, sizeof(tmp_buf)) != nullptr) {
+        ss << tmp_buf;
+    }
+    return ss;
+}
+
+
 #if defined(ARM)
 ulong* ParserPlugin::pmd_page_addr(ulong pmd){
     ulong ptr;
@@ -1147,38 +1478,6 @@ bool ParserPlugin::load_symbols(std::string& path, std::string name){
         }
     }
     return false;
-}
-
-std::unordered_map<ulong, ulong> ParserPlugin::parser_auvx_list(ulong mm_struct_addr, bool is_compat){
-    field_init(mm_struct, saved_auxv);
-    std::unordered_map <ulong, ulong> auxv_list;
-    size_t auxv_size = field_size(mm_struct, saved_auxv);
-    size_t data_size = BITS64() && !is_compat ? sizeof(Elf64_Auxv_t) : sizeof(Elf32_Auxv_t);
-    int auxv_cnt = auxv_size / data_size;
-    void* auxv_buf = read_memory(mm_struct_addr + field_offset(mm_struct, saved_auxv), auxv_size, "mm_struct saved_auxv");
-    if(!auxv_buf){
-        fprintf(fp, "get auxv info fail \n");
-        return {};
-    }
-    auto parseAuxv = [&](auto* elf_auxv) {
-        for (int i = 0; i < auxv_cnt; ++i) {
-            using T = decltype(elf_auxv->type);
-            T type = elf_auxv->type & vaddr_mask;
-            T val = elf_auxv->val & vaddr_mask;
-            if (type == 0) {
-                continue;
-            }
-            auxv_list[type] = val;
-            ++elf_auxv;
-        }
-    };
-    if (BITS64() && !is_compat) {
-        parseAuxv(reinterpret_cast<Elf64_Auxv_t*>(auxv_buf));
-    } else {
-        parseAuxv(reinterpret_cast<Elf32_Auxv_t*>(auxv_buf));
-    }
-    FREEBUF(auxv_buf);
-    return auxv_list;
 }
 
 void ParserPlugin::uwind_irq_back_trace(int cpu, ulong x30){

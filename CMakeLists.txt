@@ -38,12 +38,18 @@ find_package(PkgConfig REQUIRED)
 # sudo apt-get install libzstd-dev libzstd-dev:i386
 pkg_check_modules(ZSTD REQUIRED libzstd)
 if(NOT ZSTD_FOUND)
-    message(FATAL_ERROR "ZSTD library not found")
+    message(FATAL_ERROR "libzstd library not found")
 endif()
 # sudo apt-get install libelf-dev libelf-dev:i386
 pkg_check_modules(ELF REQUIRED libelf)
 if(NOT ELF_FOUND)
-    message(FATAL_ERROR "ELF library not found")
+    message(FATAL_ERROR "libelf library not found")
+endif()
+
+# sudo apt install libsystemd-dev libsystemd-dev:i386
+pkg_check_modules(SYSTEMD REQUIRED libsystemd)
+if(NOT SYSTEMD_FOUND)
+    message(FATAL_ERROR "libsystemd library not found")
 endif()
 
 set(PLUGIN_SOURCES
@@ -53,6 +59,7 @@ if(DEFINED BUILD_TARGET_TOGETHER)
 add_definitions(-DBUILD_TARGET_TOGETHER)
 list(APPEND PLUGIN_SOURCES
     plugins.cpp
+    utils/utask.cpp
     lib/lzo/lzo1x_decompress_safe.c
     lib/lz4/lz4_decompress.c
     binder/binder.cpp
@@ -105,7 +112,11 @@ list(APPEND PLUGIN_SOURCES
     icc/icc.cpp
     clock/clock.cpp
     pstore/pstore.cpp
-    sysinfo/sys.cpp)
+    sysinfo/sys.cpp
+    bootlog/boot.cpp
+    task/task_sched.cpp
+    surfaceflinger/sf.cpp
+    systemd/journal.cpp)
 add_library(plugins SHARED ${PLUGIN_SOURCES})
 if (CMAKE_BUILD_TARGET_ARCH STREQUAL "arm64")
     target_sources(plugins PRIVATE coredump/arm/arm64.cpp
@@ -115,7 +126,7 @@ elseif (CMAKE_BUILD_TARGET_ARCH STREQUAL "arm")
 endif()
 
 set_target_properties(plugins PROPERTIES PREFIX "")
-target_link_libraries(plugins ${ELF_LIBRARIES} ${ZSTD_LIBRARIES})
+target_link_libraries(plugins ${ELF_LIBRARIES} ${ZSTD_LIBRARIES} ${SYSTEMD_LIBRARIES})
 else()
 # =================== build dmabuf ===================
 add_library(dmabuf SHARED
@@ -158,7 +169,8 @@ add_library(procrank SHARED
             memory/swapinfo.cpp
             procrank/procrank.cpp
             lib/lzo/lzo1x_decompress_safe.c
-            lib/lz4/lz4_decompress.c)
+            lib/lz4/lz4_decompress.c
+            utils/utask.cpp)
 set_target_properties(procrank PROPERTIES PREFIX "")
 target_link_libraries(procrank ${ELF_LIBRARIES} ${ZSTD_LIBRARIES})
 
@@ -236,6 +248,7 @@ target_link_libraries(swap ${ELF_LIBRARIES})
 # =================== build prop ===================
 add_library(prop SHARED
             ${PLUGIN_SOURCES}
+            utils/utask.cpp
             memory/zraminfo.cpp
             memory/swapinfo.cpp
             property/propinfo.cpp
@@ -248,6 +261,7 @@ target_link_libraries(prop ${ELF_LIBRARIES})
 # =================== build logcat ===================
 add_library(logcat SHARED
             ${PLUGIN_SOURCES}
+            utils/utask.cpp
             memory/zraminfo.cpp
             memory/swapinfo.cpp
             property/propinfo.cpp
@@ -275,6 +289,7 @@ set_target_properties(cpuinfo PROPERTIES PREFIX "")
 # =================== build core ===================
 add_library(core SHARED
             ${PLUGIN_SOURCES}
+            utils/utask.cpp
             memory/zraminfo.cpp
             memory/swapinfo.cpp
             coredump/coredump.cpp
@@ -352,12 +367,53 @@ set_target_properties(ccf PROPERTIES PREFIX "")
 # =================== build pstore ===================
 add_library(pstore SHARED
             ${PLUGIN_SOURCES}
+            utils/utask.cpp
+            memory/zraminfo.cpp
+            memory/swapinfo.cpp
+            lib/lzo/lzo1x_decompress_safe.c
+            lib/lz4/lz4_decompress.c
             pstore/pstore.cpp)
 set_target_properties(pstore PROPERTIES PREFIX "")
+target_link_libraries(pstore ${ELF_LIBRARIES})
 
 # =================== build sys ===================
 add_library(sys SHARED
             ${PLUGIN_SOURCES}
             sysinfo/sys.cpp)
 set_target_properties(sys PROPERTIES PREFIX "")
+
+# =================== build boot ===================
+add_library(boot SHARED
+            ${PLUGIN_SOURCES}
+            bootlog/boot.cpp)
+set_target_properties(boot PROPERTIES PREFIX "")
+
+# =================== build task ===================
+add_library(sched SHARED
+            ${PLUGIN_SOURCES}
+            task/task_sched.cpp)
+set_target_properties(sched PROPERTIES PREFIX "")
+# =================== build sf ===================
+add_library(sf SHARED
+            ${PLUGIN_SOURCES}
+            memory/zraminfo.cpp
+            memory/swapinfo.cpp
+            utils/utask.cpp
+            lib/lzo/lzo1x_decompress_safe.c
+            lib/lz4/lz4_decompress.c
+            surfaceflinger/sf.cpp)
+set_target_properties(sf PROPERTIES PREFIX "")
+target_link_libraries(sf ${ELF_LIBRARIES})
+
+# =================== build systemd ===================
+add_library(systemd SHARED
+            ${PLUGIN_SOURCES}
+            memory/zraminfo.cpp
+            memory/swapinfo.cpp
+            utils/utask.cpp
+            lib/lzo/lzo1x_decompress_safe.c
+            lib/lz4/lz4_decompress.c
+            systemd/journal.cpp)
+set_target_properties(systemd PROPERTIES PREFIX "")
+target_link_libraries(systemd ${ELF_LIBRARIES} ${SYSTEMD_LIBRARIES})
 endif()

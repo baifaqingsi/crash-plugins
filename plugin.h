@@ -96,6 +96,12 @@ private:
 #if defined(ARM)
     ulong* pmd_page_addr(ulong pmd);
 #endif
+    std::vector<ulong> get_block_device_by_bdevs();
+    std::vector<ulong> get_block_device_by_class();
+    std::vector<ulong> get_block_device_by_bdevfs();
+    std::vector<ulong> for_each_kobj_map(std::string map_name);
+    std::vector<ulong> get_disk_by_bdevmap();
+    std::vector<ulong> get_disk_by_block_device();
 
 protected:
     std::unordered_map<std::string, std::unique_ptr<Typeinfo>> typetable;
@@ -108,7 +114,7 @@ public:
     const size_t page_size = PAGESIZE();
     const size_t page_shift = PAGESHIFT();
     const size_t page_mask = ~(page_size - 1);
-    ulong vaddr_mask = 0;
+    ulong kaddr_mask = 0;
     std::string cmd_name;
     std::vector<std::string> help_str_list;
     char** cmd_help;
@@ -117,6 +123,10 @@ public:
     void initialize(void);
     std::string csize(uint64_t size);
     std::string csize(uint64_t size, int unit, int precision);
+    task_context* find_proc(std::string name);
+    task_context* find_proc(ulong pid);
+    bool page_buddy(ulong page_addr);
+    int page_count(ulong page_addr);
     void print_table();
     void type_init(const std::string& type);
     void type_init(const std::string& type,const std::string& field);
@@ -131,9 +141,18 @@ public:
     std::vector<ulong> for_each_mptree(ulong maptree_addr);
     std::vector<ulong> for_each_radix(ulong root_rnode);
 
+    std::vector<ulong> for_each_pfn();
+    std::vector<ulong> for_each_file_page();
+    std::vector<ulong> for_each_anon_page();
+    std::vector<ulong> for_each_inode();
     std::vector<ulong> for_each_process();
     std::vector<ulong> for_each_threads();
     std::vector<ulong> for_each_vma(ulong& task_addr);
+    std::vector<ulong> for_each_char_device();
+    std::vector<ulong> for_each_cdev();
+    std::vector<ulong> for_each_disk();
+    std::vector<ulong> for_each_misc_device();
+    std::vector<ulong> for_each_block_device();
     std::vector<ulong> for_each_bus();
     std::vector<ulong> for_each_class();
     ulong get_bus_subsys_private(std::string bus_name);
@@ -142,6 +161,7 @@ public:
     std::vector<ulong> for_each_device_for_class(std::string class_name);
     std::vector<ulong> for_each_device_for_driver(ulong driver_addr);
     std::vector<ulong> for_each_driver(std::string bus_name);
+    std::vector<ulong> for_each_task_files(task_context *tc);
     ulonglong read_structure_field(ulong addr, const std::string &type, const std::string &field, bool virt = true);
     std::string read_cstring(ulong addr,int len, const std::string& note,bool virt=true);
     void* read_struct(ulong addr,const std::string& type,bool virt=true);
@@ -188,11 +208,11 @@ public:
     char get_printable(uint8_t d);
     std::string print_line(uint64_t addr, const std::vector<uint8_t>& data);
     std::string hexdump(uint64_t addr, const char* buf, size_t length, bool little_endian = true);
+    std::stringstream get_curpath();
 #if defined(ARM)
     ulong get_arm_pte(ulong task_addr, ulong page_vaddr);
 #endif
     bool load_symbols(std::string& path, std::string name);
-    std::unordered_map<ulong, ulong> parser_auvx_list(ulong mm_struct_addr, bool is_compat);
     void uwind_irq_back_trace(int cpu, ulong x30);
     void uwind_task_back_trace(int pid, ulong x30);
 };

@@ -68,7 +68,7 @@ Support module:
 | cma           | √         | √         | parser cma info                                      |
 | device tree   | √         | √         | parser device tree                                   |
 | memblock      | √         | √         | parser memblock info                                 |
-| device driver | √         | √         | parser device driver info                            |
+| device driver | √         | √         | parser device driver/char/block device               |
 | dmabuf        | √         | √         | parser dma-buf info                                  |
 | workqueue     | √         | √         | parser workqueue info                                |
 | reserved mem  | √         | √         | parser reserved memory info                          |
@@ -92,12 +92,17 @@ Support module:
 | icc           | √         | √         | parser icc info                                      |
 | clock         | √         | √         | parser clock info                                    |
 | pstore        | √         | √         | parser pstore log                                    |
+| boot          | √         | √         | parser pmic and boot log                             |
+| socinfo       | √         | √         | parser socinfo and commandline                       |
+| sched         | √         | √         | parser task sched info                               |
+| systemd       | √         | √         | parser journal log                                   |
 
 
-|  module       |   Android-11.0(30)  |  >Android-12.0(31)  |      comment             |
-|  --------     | ------------------- | ------------------- | -------------------      |
-| property      | √                   | √                   |   parser property info   |
-| logcat        | √                   | √                   |   parser logcat log      |
+|  module       |   Android-11.0(30)  |  >Android-12.0(31)  |      comment               |
+|  --------     | ------------------- | ------------------- | -------------------        |
+| property      | √                   | √                   |   parser property info     |
+| logcat        | √                   | √                   |   parser logcat log        |
+| surfaceflinger| √                   | √                   |   parser the layer info    |
 
 ## usage
 See [USAGE.md](USAGE.md)
